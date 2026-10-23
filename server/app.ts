@@ -8,8 +8,9 @@ import { createInvoiceDraft } from './einvoice.js';
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 const periodOf = (input: unknown): Period => z.enum(['today', 'week', 'month']).default('today').parse(input);
 const orderId = (req: Request) => String(req.params.id);
-export function createApp(store: Store, options: { pin?: string; secureCookie?: boolean; aiKey?: string | null } = {}) {
+export function createApp(store: Store, options: { pin?: string; secureCookie?: boolean; aiKey?: string | null; publicBaseUrl?: string } = {}) {
   const app = express();
+  const publicBaseUrl = options.publicBaseUrl ?? process.env.PUBLIC_BASE_URL;
   const sessions = new Map<string, number>();
   const failedLogins = new Map<string, { failures: number; until: number }>();
   const pinHash = Buffer.from(hash(options.pin ?? process.env.STAFF_PIN ?? '2468'));
@@ -34,7 +35,7 @@ export function createApp(store: Store, options: { pin?: string; secureCookie?: 
     if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
       if (!req.is('application/json')) return next(new AppError('请使用 JSON 请求', 415));
       const origin = req.get('origin');
-      const allowedOrigin = process.env.PUBLIC_BASE_URL ? new URL(process.env.PUBLIC_BASE_URL).origin : `${req.protocol}://${req.get('host')}`;
+      const allowedOrigin = publicBaseUrl ? new URL(publicBaseUrl).origin : `${req.protocol}://${req.get('host')}`;
       if (origin && origin !== allowedOrigin) return next(new AppError('请求来源不受信任', 403));
     }
     next();
@@ -96,7 +97,7 @@ export function createApp(store: Store, options: { pin?: string; secureCookie?: 
     res.attachment(`squarebox-${report.startDate}-${report.endDate}.csv`).type('text/csv').send('\uFEFF' + csv);
   });
   app.get('/api/guest-qr', async (req, res) => {
-    const base = process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`;
+    const base = publicBaseUrl || `${req.protocol}://${req.get('host')}`;
     const url = new URL('/order', base);
     if (!['http:', 'https:'].includes(url.protocol)) throw new AppError('PUBLIC_BASE_URL 必须为 HTTP 或 HTTPS 地址');
     res.json({ url: url.href, svg: await QRCode.toString(url.href, { type: 'svg', margin: 2, width: 256 }), localOnly: ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname) });
