@@ -186,3 +186,104 @@ test('new ingredients and recipe dishes can be created and sold with the configu
   expect(afterSale.report.totals.revenue).toBeCloseTo(afterOpening.report.totals.revenue + 34.5, 2);
   expect(afterSale.report.totals.cogs).toBeCloseTo(afterOpening.report.totals.cogs + 4, 2);
 });
+
+// A zero-overflow assertion alone misses a squeezed menu beside a wide cart.
+// Check real element geometry in Android-style contexts at responsive boundaries.
+const guestViewports = [
+  { width: 320, height: 740 },
+  { width: 360, height: 800 },
+  { width: 390, height: 844 },
+  { width: 412, height: 915 },
+  { width: 600, height: 960 },
+  { width: 768, height: 1024 },
+  { width: 820, height: 1180 },
+  { width: 844, height: 390 },
+  { width: 900, height: 600 },
+  { width: 901, height: 900 },
+  { width: 1024, height: 600 },
+  { width: 1280, height: 800 },
+];
+for (const viewport of guestViewports) {
+  test(`guest menu stays readable and cart does not overlap at ${viewport.width}×${viewport.height}`, async ({ browser }) => {
+    const context = await browser.newContext({
+      viewport,
+      isMobile: true,
+      hasTouch: true,
+      deviceScaleFactor: 3,
+      colorScheme: viewport.width === 390 ? 'dark' : 'light',
+    });
+    try {
+      const page = await context.newPage();
+      await page.goto('http://127.0.0.1:3105/order');
+      await expect(page.getByRole('heading', { name: '今天，想吃点什么？' })).toBeVisible();
+      await expect(page.locator('.menu-card').first()).toBeVisible();
+      expect(await page.locator('.menu-card').count()).toBeGreaterThanOrEqual(6);
+      const layout = await page.evaluate(() => {
+        const rect = (element: Element) => {
+          const r = element.getBoundingClientRect();
+          return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width };
+        };
+        return {
+          innerWidth: window.innerWidth,
+          documentWidth: document.documentElement.scrollWidth,
+          container: rect(document.querySelector('.pos-layout')!),
+          menu: rect(document.querySelector('.menu-section')!),
+          cart: rect(document.querySelector('.cart-panel')!),
+          cards: [...document.querySelectorAll('.menu-card')].map(rect),
+          titles: [...document.querySelectorAll('.menu-name')].map(rect),
+        };
+      });
+      expect(layout.innerWidth).toBe(viewport.width);
+      expect(layout.documentWidth).toBeLessThanOrEqual(viewport.width + 1);
+      expect(layout.container.left).toBeGreaterThanOrEqual(0);
+      expect(layout.container.right).toBeLessThanOrEqual(viewport.width + 1);
+      for (const card of layout.cards) {
+        expect(card.width, 'each menu card must remain readable, rather than a vertical sliver').toBeGreaterThanOrEqual(140);
+        expect(card.left).toBeGreaterThanOrEqual(layout.menu.left - 1);
+        expect(card.right).toBeLessThanOrEqual(layout.menu.right + 1);
+      }
+      for (const title of layout.titles) expect(title.width, 'dish names need usable line width').toBeGreaterThanOrEqual(100);
+      if (viewport.width <= 900) {
+        expect(layout.menu.width).toBeGreaterThanOrEqual(layout.container.width - 1);
+        expect(layout.cart.width).toBeGreaterThanOrEqual(layout.container.width - 1);
+        expect(layout.cart.top, 'phone/tablet cart must stack below the complete menu').toBeGreaterThanOrEqual(layout.menu.bottom - 1);
+      } else {
+        expect(layout.cart.left, 'wide layouts may use columns, without overlap').toBeGreaterThanOrEqual(layout.menu.right - 1);
+      }
+      if (viewport.width === 390) {
+        await page.screenshot({ path: '/tmp/squarebox-guest-mobile-fixed.png', fullPage: true, scale: 'css' });
+        await page.getByRole('button', { name: '添加冰拿铁', exact: true }).tap();
+        await page.locator('.cart-panel').scrollIntoViewIfNeeded();
+        await expect(page.locator('.cart-item-name')).toHaveText('冰拿铁');
+        await page.getByRole('button', { name: /^确认收款/ }).tap();
+        await expect(page.locator('.order-success')).toContainText('示例收款完成');
+        await noOverflow(page);
+      }
+    } finally {
+      await context.close();
+    }
+  });
+}
+
+for (const viewport of [{ width: 320, height: 740 }, { width: 390, height: 844 }, { width: 768, height: 1024 }, { width: 900, height: 600 }, { width: 901, height: 900 }, { width: 1280, height: 800 }]) {
+  test(`staff POS shares readable responsive layout at ${viewport.width}×${viewport.height}`, async ({ browser }) => {
+    const context = await browser.newContext({ baseURL: 'http://127.0.0.1:3105', viewport, isMobile: viewport.width <= 900, hasTouch: viewport.width <= 900, deviceScaleFactor: 2 });
+    try {
+      const page = await context.newPage();
+      await login(page);
+      await navigate(page, '点餐收银');
+      await expect(page.getByRole('heading', { name: '点一份好味道' })).toBeVisible();
+      const layout = await page.evaluate(() => {
+        const rect = (selector: string) => { const r = document.querySelector(selector)!.getBoundingClientRect(); return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width }; };
+        return { menu: rect('.menu-section'), cart: rect('.cart-panel'), cards: [...document.querySelectorAll('.menu-card')].map(card => card.getBoundingClientRect().width) };
+      });
+      await noOverflow(page);
+      for (const width of layout.cards) expect(width, 'staff menu cards must remain readable').toBeGreaterThanOrEqual(140);
+      if (viewport.width <= 900) expect(layout.cart.top).toBeGreaterThanOrEqual(layout.menu.bottom - 1);
+      else {
+        expect(layout.cart.left).toBeGreaterThanOrEqual(layout.menu.right - 1);
+        await expect(page.getByRole('navigation', { name: '主导航' })).toBeVisible();
+      }
+    } finally { await context.close(); }
+  });
+}

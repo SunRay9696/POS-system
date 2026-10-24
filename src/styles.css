@@ -1521,7 +1521,7 @@ svg {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .pos-layout {
-    grid-template-columns: minmax(0, 1fr) 305px;
+    grid-template-columns: minmax(0, 1fr) 300px;
     gap: 18px;
   }
   .agent-grid {
@@ -1642,8 +1642,12 @@ svg {
     padding: 0 25px;
   }
   .pos-layout {
-    grid-template-columns: minmax(0, 1fr) 290px;
-    gap: 15px;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 20px;
+  }
+  .cart-panel {
+    position: static;
+    min-width: 0;
   }
   .menu-grid {
     gap: 12px;
@@ -3435,9 +3439,6 @@ svg {
   }
   .inventory-stats strong {
     font-size: 21px;
-  }
-  .pos-layout {
-    grid-template-columns: minmax(0, 1fr) 300px;
   }
   .cart-header {
     padding: 19px;
